@@ -1,0 +1,93 @@
+﻿@page "/login"
+@using GraphQL.Client.Http
+@using GraphQL
+@using FEBookStoreManagement.Models.ResponseModels
+@using System.Net.Http.Headers
+@using FEBookStoreManagement.Utilities
+@using FEBookStoreManagement.DTO
+@layout EmptyLayout
+@inject GraphQLHttpClient Client
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+
+<title>Login</title>
+
+<div class="d-flex justify-content-center align-items-center" style="min-height:100vh; background:#f5f7fa;">
+    <div class="card p-4" style="width: 380px; box-shadow: 0 6px 18px rgba(0,0,0,0.06);">
+        <h4 class="mb-3 text-center">Sign in</h4>
+
+        <EditForm Model="@_credentials" OnInvalidSubmit="HandleInvalid" OnValidSubmit="HandleLogin" FormName="login-form">
+            <DataAnnotationsValidator/>
+            <ValidationSummary/>
+
+            <div class="mb-3">
+                <label class="form-label">Email</label>
+                <InputText class="form-control" @bind-Value="_credentials.Username"/>
+                <ValidationMessage For="@(() => _credentials.Username)"/>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Password</label>
+                <InputText type="password" class="form-control" @bind-Value="_credentials.Password"/>
+                <ValidationMessage For="@(() => _credentials.Password)"/>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100" disabled="@_isLoading">
+                @(_isLoading ? "Signing in..." : "Sign in")
+            </button>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger mt-3">@_errorMessage</div>
+            }
+        </EditForm>
+
+    </div>
+</div>
+
+@code {
+    private readonly LoginDto _credentials = new();
+    private bool _isLoading;
+    private string _errorMessage = "";
+
+
+    private static void HandleInvalid()
+    {
+        Console.WriteLine("Form invalid!");
+    }
+
+    private async Task HandleLogin()
+    {
+        _errorMessage = string.Empty;
+        _isLoading = true;
+
+        var request = new GraphQLRequest
+        {
+            Query = @"mutation login($username: String!, $password: String!){
+                          login(login:  {
+                           userName: $username,
+                           password: $password
+                        }){
+                          token,userInfo{
+                            id,name
+                          }
+                        }
+                        }",
+            Variables = new { username = _credentials.Username, password = _credentials.Password }
+        };
+
+        var response = await Client.SendMutationAsync<LoginResponse>(request);
+        if (response.Errors != null && response.Errors.Any())
+        {
+            _errorMessage = string.Join("; ", response.Errors.Select(e => e.Message));
+        }
+
+        // Add Authorization header for all future GraphQL requests
+        Client.HttpClient.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", response.Data.Login.Token);
+
+        var jwtProvider = (JwtAuthenticationServiceProvider)AuthStateProvider;
+        await jwtProvider.MarkUserAsLoggedIn(response.Data.Login.Token);
+        Navigation.NavigateTo("/author");
+    }
+}

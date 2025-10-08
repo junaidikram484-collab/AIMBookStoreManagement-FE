@@ -1,0 +1,79 @@
+#------------------------------------------------------------------------------
+
+Blazor / ASP.NET Core Specific
+#------------------------------------------------------------------------------
+
+Build and output folders
+[Dd]ebug/
+[Rr]elease/
+[Bb]in/
+[Oo]bj/
+[Tt]emp/
+TestResults/
+**/*.pdb
+
+Runtime and Hosting
+Blazor WebAssembly output, bundles and caches
+wwwroot/dist/
+wwwroot/bundle/
+.temp-cache/
+
+Application state and configuration files
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+Note: The two lines above include 'appsettings.json' and 'appsettings.Development.json'
+but exclude all others like 'appsettings.Production.json' to prevent secrets leak.
+.json
+
+Development-time SQL Server Express files
+*.mdf
+*.ldf
+
+Hot Reload files
+*.hotreload
+
+#------------------------------------------------------------------------------
+
+Visual Studio / Rider / IDE Specific
+#------------------------------------------------------------------------------
+
+User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.tss
+*.vssscc
+*.vspscc
+
+Rider IDE
+.idea/
+*.iws
+*.bak
+*.v11.suo
+*.v12.suo
+*.vs
+
+VS Code
+.vscode/
+
+#------------------------------------------------------------------------------
+
+NuGet / Dependencies
+#------------------------------------------------------------------------------
+packages/
+*.nupkg
+project.lock.json
+project.fragment.lock.json
+
+Packages folder outside of source control (if any)
+**/node_modules/
+
+#------------------------------------------------------------------------------
+
+OS and Miscellaneous Files
+#------------------------------------------------------------------------------
+.DS_Store # macOS
+*~        # Linux/Unix

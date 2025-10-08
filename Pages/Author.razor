@@ -1,0 +1,601 @@
+﻿@page "/author"
+@attribute [Authorize]
+@using FEBookStoreManagement.DTO
+@using FEBookStoreManagement.Models.ResponseModels
+@using FEBookStoreManagement.Utilities
+@using GraphQL
+@using GraphQL.Client.Http
+
+@inject GraphQLHttpClient Client
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+
+
+<div class="min-h-screen p-4 sm:p-8">
+    <div class="header-row">
+        <h2 class="list-title">Authors</h2>
+        <button class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800"
+                @onclick="AddAuthor">
+            + Add New Author
+        </button>
+    </div>
+
+    <!-- Notification/Message Area -->
+    <div id="messageArea" class="mb-6 p-4 rounded-lg text-center font-medium transition duration-300 hidden"></div>
+
+    <!-- Author List Container -->
+    <div id="authorList" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        @if (_isLoading)
+        {
+            <p class="loading-text">Loading author directory...</p>
+        }
+        else if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div class="error-box">
+                <h4>Error fetching data:</h4>
+                <p>@ErrorMessage</p>
+            </div>
+        }
+        else if (AuthorData.Any())
+        {
+            @foreach (var author in AuthorData)
+            {
+                <div class="author-card">
+                    <!-- --- START OF ADDED BUTTON AND EVENT WIRING --- -->
+                    <div class="name-row">
+                        <h3 class="name-header">@author.Name</h3>
+                    </div>
+                    <!-- --- END OF ADDED BUTTON AND EVENT WIRING --- -->
+
+                    <div class="detail-group">
+                        <span class="label">Author ID:</span>
+                        <span class="value id-value">@author.Id</span>
+                    </div>
+
+                    <div class="detail-group">
+                        <span class="label">Biography:</span>
+                        @if (string.IsNullOrEmpty(author.BioGraphy))
+                        {
+                            <em class="value no-bio">No biography provided.</em>
+                        }
+                        else
+                        {
+                            <p class="value biography-text">@author.BioGraphy</p>
+                        }
+                    </div>
+                    <div>
+                        <button @onclick="() => DeleteAuthor(author.Id)" type="button"
+                                class="focus:outline-none text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-900">
+                            Delete
+                        </button>
+                        <button @onclick="() => ShowAuthorBooks(author.Id, author.Name)" type="button" class="focus:outline-none text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
+                            View Books
+                        </button>
+                        <button @onclick="() => EditAuthor(author)" type="button" class="focus:outline-none text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
+                            Edit Author
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <p class="loading-text">No authors found.</p>
+        }
+    </div>
+</div>
+
+<!-- --- START: Add Author Modal (Conditional Rendering) --- -->
+@if (_isAddModalOpen)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal-content" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Add New Author</h3>
+                <button class="close-btn" @onclick="CloseModal">&times;</button>
+            </div>
+
+            <!-- Blazor Form with C# Validation -->
+            <EditForm Model="@CreateAuthorModel" OnValidSubmit="@CreateAuthor" FormName="AddAuthorForm">
+                <DataAnnotationsValidator/>
+
+                <div class="modal-body">
+                    <ValidationSummary/>
+
+                    <div class="form-group">
+                        <label for="name">Name <span class="required">*</span></label>
+                        <InputText id="name" class="form-control" @bind-Value="CreateAuthorModel.Name"/>
+                        <ValidationMessage For="@(() => CreateAuthorModel.Name)"/>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="biography">Biography</label>
+                        <InputTextArea id="biography" class="form-control" @bind-Value="CreateAuthorModel.BioGraphy" rows="4"/>
+                        <ValidationMessage For="@(() => CreateAuthorModel.BioGraphy)"/>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="submit" disabled="@_isLoading" class="submit-btn focus:outline-none text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
+                        @(_isLoading ? "Adding..." : "Add Author")
+                    </button>
+                    <button type="button" @onclick="CloseModal" disabled="@_isLoading" class="cancel-btn focus:outline-none text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-900">
+                        Cancel
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+<!-- --- END: Add Author Modal --- -->
+@if (_isEditModalOpen)
+{
+    <div class="modal-overlay" @onclick="CloseEditModal">
+        <div class="modal-content" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Update Author</h3>
+                <button class="close-btn" @onclick="CloseEditModal">&times;</button>
+            </div>
+
+            <!-- Blazor Form with C# Validation -->
+            <EditForm Model="@_updateAuthorModel" OnValidSubmit="@SaveUpdateAuthor" FormName="UpdateAuthorForm">
+                <DataAnnotationsValidator />
+
+                <div class="modal-body">
+                    <ValidationSummary />
+
+                    <div class="form-group">
+                        <label for="name">Name <span class="required">*</span></label>
+                        <InputText id="name" class="form-control" @bind-Value="_updateAuthorModel.Name" />
+                        <ValidationMessage For="@(() => _updateAuthorModel.Name)" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="biography">BioGraphy</label>
+                        <InputText id="biography" class="form-control" @bind-Value="_updateAuthorModel.BioGraphy" />
+                        <ValidationMessage For="@(() => _updateAuthorModel.BioGraphy)" />
+                    </div>
+
+                </div>
+
+                <div class="modal-footer">
+                    <button type="submit" disabled="@_isLoading" class="submit-btn focus:outline-none text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
+                        @(_isLoading ? "Adding..." : "Update Author")
+                    </button>
+                    <button type="button" @onclick="CloseEditModal" disabled="@_isLoading" class="cancel-btn focus:outline-none text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-900">
+                        Cancel
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+<!-- --- Component Styling (CSS) --- -->
+<style>
+    /* --- NEW FLEXBOX STYLE FOR THE MAIN HEADER ROW --- */
+    .header-row {
+        display: flex;
+        justify-content: space-between; /* Pushes content to opposite ends */
+        align-items: center; /* Centers button and heading vertically */
+        margin-bottom: 20px;
+    }
+
+    .author-list-container {
+        max-width: 800px;
+        margin: 40px auto;
+        padding: 20px;
+        font-family: Arial, sans-serif;
+    }
+
+    .list-title {
+        font-size: 2.5em;
+        color: #1e3a8a;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    .divider-list {
+        border: 0;
+        height: 2px;
+        background: #bfdbfe;
+        margin: 10px 0 30px 0;
+    }
+
+    .author-card {
+        margin-bottom: 25px;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        background-color: #ffffff;
+        border-left: 4px solid #3b82f6; /* Accent color */
+        transition: transform 0.2s;
+    }
+
+        .author-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
+        }
+
+    /* Style for the header and button to be on the same line */
+    .name-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px dashed #e5e7eb;
+        padding-bottom: 5px;
+        margin-bottom: 10px;
+    }
+
+    .name-header {
+        font-size: 1.5em;
+        color: #333;
+        margin: 0; /* Remove default margins */
+        font-weight: 600;
+        line-height: 1.5; /* Align text vertically */
+    }
+
+    .view-books-btn {
+        background-color: #10b981; /* Tailwind emerald-500 */
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background-color 0.2s, transform 0.1s;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+        .view-books-btn:hover {
+            background-color: #059669; /* Darker emerald */
+            transform: translateY(-1px);
+        }
+
+
+    .detail-group {
+        margin-bottom: 10px;
+    }
+
+    .label {
+        font-weight: bold;
+        color: #555;
+        display: block;
+        margin-bottom: 2px;
+        font-size: 0.9em;
+    }
+
+    .value {
+        color: #1a1a1a;
+        line-height: 1.4;
+        font-size: 1em;
+        word-break: break-all;
+    }
+
+    .id-value {
+        font-family: monospace;
+        background-color: #eff6ff;
+        color: #1e3a8a;
+        padding: 2px 6px;
+        border-radius: 4px;
+        display: inline-block;
+        font-size: 0.85em;
+    }
+
+    .biography-text {
+        margin-top: 5px;
+        white-space: pre-wrap;
+        padding: 10px;
+        background-color: #f9fafb;
+        border-radius: 6px;
+        border: 1px solid #e0e0e0;
+    }
+
+    .no-bio {
+        color: #999;
+        font-style: italic;
+    }
+
+    .loading-text {
+        color: #007bff;
+        text-align: center;
+        padding: 20px;
+    }
+
+    .error-box {
+        border: 2px solid #dc3545;
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 15px;
+        border-radius: 8px;
+        margin: 20px 0;
+    }
+
+    /* --- MODAL STYLES --- */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.6);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: white;
+        padding: 0;
+        border-radius: 12px;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        width: 90%;
+        max-width: 500px;
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    @@keyframes fadeIn {
+        from
+
+    {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 25px;
+        border-bottom: 1px solid #eee;
+    }
+
+        .modal-header h3 {
+            margin: 0;
+            color: #1e3a8a;
+        }
+
+    .modal-body {
+        padding: 25px;
+    }
+
+    .modal-footer {
+        padding: 15px 25px;
+        border-top: 1px solid #eee;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 1.5em;
+        cursor: pointer;
+        color: #aaa;
+        line-height: 1;
+        padding: 0;
+    }
+
+</style>
+
+
+@code {
+
+    // --- NEW MODAL STATE ---
+    private bool _isAddModalOpen;
+    private bool _isEditModalOpen;
+    public CreateAuthorDto CreateAuthorModel { get; set; } = new();
+    private CreateAuthorDto _updateAuthorModel = new();
+    [Parameter] public Guid AuthorId { get; set; }
+    public List<AuthorDto> AuthorData { get; set; } = new();
+    private bool _isLoading = true;
+
+    public string ErrorMessage { get; set; } = string.Empty;
+
+    protected async Task FetchAuthorsAsync()
+    {
+        try
+        {
+
+            // Create the request payload
+            var request = new GraphQLRequest
+            {
+                Query = @"
+                        query{
+                            authors{
+                                id,name,bioGraphy
+                                }
+                            }
+            "
+            };
+
+            // 1. Send the GraphQL request to the endpoint
+            var response = await Client.SendQueryAsync<AuthorResponse>(request);
+
+            if (response.Errors != null && response.Errors.Any())
+            {
+                ErrorMessage = $"GraphQL Execution Error: {string.Join("; ", response.Errors.Select(e => e.ToString()))}";
+                return;
+            }
+
+            AuthorData = response.Data.Authors;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"An unexpected error occurred: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+            // Since we updated the state, we notify the component to re-render.
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveUpdateAuthor()
+    {
+        var request = new GraphQLRequest
+        {
+            Query = @"mutation UpdateAuthor($id: UUID!, $name: String!, $bioGraphy: String!){
+                            updateAuthor(input:  {
+                               id: $id,
+                               name: $name,
+                               bioGraphy: $bioGraphy
+                            }){id}
+                            }",
+            Variables = new { id = _updateAuthorModel.Id, name = _updateAuthorModel.Name, bioGraphy = _updateAuthorModel.BioGraphy }
+        };
+
+        var response = await Client.SendMutationAsync<dynamic>(request);
+        if (response.Errors != null && response.Errors.Any())
+        {
+            ErrorMessage = string.Join("; ", response.Errors.Select(e => e.Message));
+        }
+
+        await FetchAuthorsAsync();
+        CloseEditModal();
+    }
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var jwtProvider = (JwtAuthenticationServiceProvider)AuthStateProvider;
+        await jwtProvider.GetAuthenticationStateAsync();
+        if (firstRender)
+        {
+            await FetchAuthorsAsync();
+        }
+    }
+
+    private async Task DeleteAuthor(Guid id)
+    {
+        try
+        {
+            var request = new GraphQLRequest
+            {
+                Query = @"
+                        mutation DeleteAuthor($id: UUID!){
+                            deleteAuthor(id: $id)
+                        }
+                      ",
+                Variables = new { id }
+            };
+
+            var response = await Client.SendMutationAsync<DeleteAuthorResponse>(request);
+
+            if (response.Errors != null && response.Errors.Any())
+            {
+                ErrorMessage = $"GraphQL Execution Error: {string.Join("; ", response.Errors.Select(e => e.ToString()))}";
+            }
+
+            await FetchAuthorsAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"An unexpected error occurred: {ex.Message}";
+        }
+        finally
+        {
+            // Since we updated the state, we notify the component to re-render.
+            StateHasChanged();
+        }
+    }
+
+    private async Task CreateAuthor()
+    {
+        ErrorMessage = string.Empty;
+        _isLoading = true;
+
+        const string query = @"
+                    mutation createAuthor($name: String!, $bioGraphy: String!){
+                            createAuthor(input:  {
+                                 name: $name,
+                                 bioGraphy: $bioGraphy
+                                })
+                    {
+                     id, name, bioGraphy
+                    }
+                }";
+
+        var request = new GraphQLRequest
+        {
+            Query = query,
+            Variables = new
+            {
+                name = CreateAuthorModel.Name,
+                bioGraphy = string.IsNullOrEmpty(CreateAuthorModel.BioGraphy) ? string.Empty : CreateAuthorModel.BioGraphy
+            }
+        };
+
+        try
+        {
+            var response = await Client.SendMutationAsync<CreateAuthorData>(request);
+
+            if (response.Errors != null && response.Errors.Any())
+            {
+                ErrorMessage = $"Create request failed with status code: {response.Errors.FirstOrDefault()}";
+                return;
+            }
+
+            // Success: Close modal and refresh list
+            CloseModal();
+            await FetchAuthorsAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"An unexpected error occurred during creation: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowAuthorBooks(Guid authorId, string? authorName = null)
+    {
+        Navigation.NavigateTo(string.IsNullOrEmpty(authorName) ? $"/books/{authorId}" : $"/books/{authorId}?authorName={authorName}");
+    }
+
+    // *** NEW: Method to open the Add Author modal ***
+    private void AddAuthor()
+    {
+        CreateAuthorModel = new CreateAuthorDto(); // Reset form model
+        _isAddModalOpen = true; // Open the modal
+        ErrorMessage = string.Empty; // Clear previous messages
+        StateHasChanged();
+    }
+
+    private void EditAuthor(AuthorDto author)
+    {
+        _updateAuthorModel = new CreateAuthorDto
+        {
+            Id = author.Id,
+            Name = author.Name,
+            BioGraphy = author.BioGraphy
+        };
+        
+        _isEditModalOpen = true; // Open the modal
+        ErrorMessage = string.Empty; // Clear previous messages
+    }
+
+    // *** NEW: Method to close the Add Author modal ***
+    private void CloseModal()
+    {
+        _isAddModalOpen = false;
+        CreateAuthorModel = new CreateAuthorDto(); // Reset form model
+        StateHasChanged();
+    }
+    private void CloseEditModal()
+    {
+        _isEditModalOpen = false;
+    }
+}

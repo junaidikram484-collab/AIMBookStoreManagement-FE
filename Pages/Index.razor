@@ -1,0 +1,20 @@
+﻿@page "/"
+@inject Microsoft.AspNetCore.Components.NavigationManager Navigation
+
+<div style="padding: 20px; text-align: center; color: #6b7280;">
+    <p>Loading application...</p>
+</div>
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // Ensure the navigation call only runs once, after the component
+        // has been fully rendered and is ready to interact with the client-side DOM/JS.
+        if (firstRender)
+        {
+            // When the root path ("/") is loaded, this immediately navigates
+            // the user to the component mapped to "/author".
+            Navigation.NavigateTo("/author", forceLoad: false);
+        }
+    }
+}

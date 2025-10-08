@@ -1,0 +1,710 @@
+﻿@page "/book"
+@page "/books/{AuthorId:guid?}"
+@attribute [Authorize] 
+
+@using FEBookStoreManagement.DTO
+@using FEBookStoreManagement.Models.ResponseModels
+@using GraphQL
+@using GraphQL.Client.Abstractions
+@using GraphQL.Client.Http
+
+@inject GraphQLHttpClient _client
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+
+<div class="min-h-screen p-4 sm:p-8">
+    <div class="header-row">
+        <h2 class="list-title">
+            @PageTitle
+        </h2>
+        <button class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800"
+                @onclick="AddBook">
+            + Add New Book
+        </button>
+    </div>
+
+    <!-- Notification/Message Area -->
+    <div id="messageArea" class="mb-6 p-4 rounded-lg text-center font-medium transition duration-300 hidden"></div>
+
+    <!-- Author List Container -->
+    <div id="authorList" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        @if (_isLoading)
+        {
+            <p class="loading-text">Loading author directory...</p>
+        }
+        else if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="error-box">
+                <h4>Error fetching data:</h4>
+                <p>@_errorMessage</p>
+            </div>
+        }
+        else if (BookData.Any())
+        {
+            @foreach (var book in BookData)
+            {
+                <div class="author-card">
+                    <!-- --- START OF ADDED BUTTON AND EVENT WIRING --- -->
+                    <div class="name-row">
+                        <h3 class="name-header">@book.Title</h3>
+                    </div>
+                    <!-- --- END OF ADDED BUTTON AND EVENT WIRING --- -->
+
+                    <div class="detail-group">
+                        <span class="label">Book ID:</span>
+                        <span class="value id-value">@book.Id</span>
+                        <span class="label">Year:</span>
+                        <span class="value id-value">@book.Year</span>
+                        <span class="label">Pages:</span>
+                        <span class="value id-value">@book.Pages</span>
+                    </div>
+                    
+                    <div class="detail-group">
+                        <span class="label">Author:</span>
+                        <p class="value biography-text">@book.Author.Name</p>
+                    </div>
+                    <div>
+                        <button @onclick="() => DeleteBook(book.Id)" type="button"
+                                class="focus:outline-none text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-900">
+                            Delete
+                        </button>
+                        <button @onclick="() => UpdateBook(book)" type="button" class="focus:outline-none text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
+                            Update Book
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <p class="loading-text">No Books found.</p>
+        }
+    </div>
+</div>
+ @if (IsEditModalOpen)
+{
+    <div class="modal-overlay" @onclick="CloseEditModal">
+        <div class="modal-content" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Update Book</h3>
+                <button class="close-btn" @onclick="CloseEditModal">&times;</button>
+            </div>
+
+            <!-- Blazor Form with C# Validation -->
+            <EditForm Model="@_updateBookModel" OnValidSubmit="@SaveUpdateBook" FormName="UpdateBookForm">
+                <DataAnnotationsValidator />
+
+                <div class="modal-body">
+                    <ValidationSummary />
+
+                    <div class="form-group">
+                        <label for="title">Title <span class="required">*</span></label>
+                        <InputText id="title" class="form-control" @bind-Value="_updateBookModel.Title" />
+                        <ValidationMessage For="@(() => _updateBookModel.Title)" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="year">Year</label>
+                        <InputNumber id="year" class="form-control" @bind-Value="_updateBookModel.Year" />
+                        <ValidationMessage For="@(() => _updateBookModel.Year)" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pages">Pages</label>
+                        <InputNumber id="pages" class="form-control" @bind-Value="_updateBookModel.Pages" />
+                        <ValidationMessage For="@(() => _updateBookModel.Pages)" />
+                    </div>
+                    
+
+                </div>
+
+                <div class="modal-footer">
+                    <button type="submit" disabled="@_isLoading" class="submit-btn focus:outline-none text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
+                        @(_isLoading ? "Adding..." : "Update Book")
+                    </button>
+                    <button type="button" @onclick="CloseEditModal" disabled="@_isLoading" class="cancel-btn focus:outline-none text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-900">
+                        Cancel
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+ 
+@if (IsAddModalOpen)
+{
+    <div class="modal-overlay" @onclick="CloseAddModal">
+        <div class="modal-content" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Add New Book</h3>
+                <button class="close-btn" @onclick="CloseAddModal">&times;</button>
+            </div>
+
+            <!-- Blazor Form with C# Validation -->
+            <EditForm Model="@_createBookModel" OnValidSubmit="@SaveAddBook" FormName="AddBookForm">
+                <DataAnnotationsValidator />
+
+                <div class="modal-body">
+                    <ValidationSummary />
+
+                    <div class="form-group">
+                        <label for="title">Title <span class="required">*</span></label>
+                        <InputText id="title" class="form-control" @bind-Value="_createBookModel.Title" />
+                        <ValidationMessage For="@(() => _createBookModel.Title)" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="year">Year</label>
+                        <InputNumber id="year" class="form-control" @bind-Value="_createBookModel.Year" />
+                        <ValidationMessage For="@(() => _createBookModel.Year)" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pages">Pages</label>
+                        <InputNumber id="pages" class="form-control" @bind-Value="_createBookModel.Pages" />
+                        <ValidationMessage For="@(() => _createBookModel.Pages)" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="authorId">Author</label>
+                        <InputSelect id="authorId" class="form-control" @bind-Value="_createBookModel.AuthorId">
+                            <option value="">-- Select Author --</option>
+                            @foreach (var author in AuthorData)
+                            {
+                                <option value="@author.Id">@author.Name</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="@(() => _createBookModel.AuthorId)" />
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="submit" disabled="@_isLoading" class="submit-btn focus:outline-none text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800">
+                        @(_isLoading ? "Adding..." : "Save Book")
+                    </button>
+                    <button type="button" @onclick="CloseAddModal" disabled="@_isLoading" class="cancel-btn focus:outline-none text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-900">
+                        Cancel
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+
+
+<style>
+    .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .modal-content {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        width: 400px;
+    }
+
+    .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 15px;
+        gap: 10px;
+    }
+    /* --- NEW FLEXBOX STYLE FOR THE MAIN HEADER ROW --- */
+    .header-row {
+        display: flex;
+        justify-content: space-between; /* Pushes content to opposite ends */
+        align-items: center; /* Centers button and heading vertically */
+        margin-bottom: 20px;
+    }
+
+    .author-list-container {
+        max-width: 800px;
+        margin: 40px auto;
+        padding: 20px;
+        font-family: Arial, sans-serif;
+    }
+
+    .list-title {
+        font-size: 2.5em;
+        color: #1e3a8a;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    .divider-list {
+        border: 0;
+        height: 2px;
+        background: #bfdbfe;
+        margin: 10px 0 30px 0;
+    }
+
+    .author-card {
+        margin-bottom: 25px;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        background-color: #ffffff;
+        border-left: 4px solid #3b82f6; /* Accent color */
+        transition: transform 0.2s;
+    }
+
+        .author-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
+        }
+
+    /* Style for the header and button to be on the same line */
+    .name-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px dashed #e5e7eb;
+        padding-bottom: 5px;
+        margin-bottom: 10px;
+    }
+
+    .name-header {
+        font-size: 1.5em;
+        color: #333;
+        margin: 0; /* Remove default margins */
+        font-weight: 600;
+        line-height: 1.5; /* Align text vertically */
+    }
+
+    .view-books-btn {
+        background-color: #10b981; /* Tailwind emerald-500 */
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background-color 0.2s, transform 0.1s;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+        .view-books-btn:hover {
+            background-color: #059669; /* Darker emerald */
+            transform: translateY(-1px);
+        }
+
+
+    .detail-group {
+        margin-bottom: 10px;
+    }
+
+    .label {
+        font-weight: bold;
+        color: #555;
+        display: block;
+        margin-bottom: 2px;
+        font-size: 0.9em;
+    }
+
+    .value {
+        color: #1a1a1a;
+        line-height: 1.4;
+        font-size: 1em;
+        word-break: break-all;
+    }
+
+    .id-value {
+        font-family: monospace;
+        background-color: #eff6ff;
+        color: #1e3a8a;
+        padding: 2px 6px;
+        border-radius: 4px;
+        display: inline-block;
+        font-size: 0.85em;
+    }
+
+    .biography-text {
+        margin-top: 5px;
+        white-space: pre-wrap;
+        padding: 10px;
+        background-color: #f9fafb;
+        border-radius: 6px;
+        border: 1px solid #e0e0e0;
+    }
+
+    .no-bio {
+        color: #999;
+        font-style: italic;
+    }
+
+    .loading-text {
+        color: #007bff;
+        text-align: center;
+        padding: 20px;
+    }
+
+    .error-box {
+        border: 2px solid #dc3545;
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 15px;
+        border-radius: 8px;
+        margin: 20px 0;
+    }
+
+    /* --- MODAL STYLES --- */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.6);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: white;
+        padding: 0;
+        border-radius: 12px;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        width: 90%;
+        max-width: 500px;
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    @@keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 25px;
+        border-bottom: 1px solid #eee;
+    }
+
+        .modal-header h3 {
+            margin: 0;
+            color: #1e3a8a;
+        }
+
+    .modal-body {
+        padding: 25px;
+    }
+
+    .modal-footer {
+        padding: 15px 25px;
+        border-top: 1px solid #eee;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 1.5em;
+        cursor: pointer;
+        color: #aaa;
+        line-height: 1;
+        padding: 0;
+    }
+
+</style>
+
+@code {
+    public bool IsEditModalOpen { get; set; } = false;
+    public bool IsAddModalOpen { get; set; } = false;
+    public bool IsEditMode { get; set; } = false;
+    public BookDto CurrentBook { get; set; } = new();
+
+    private bool _isLoading = true;
+    private string _errorMessage = string.Empty;
+    public List<BookDto> BookData { get; set; } = new List<BookDto>();
+    private string PageTitle { get; set; } = "Loading Books...";
+    private Guid? CurrentAuthorId { get; set; }
+    private CreateBookDto _createBookModel = new();
+    private UpdateBookDto _updateBookModel = new();
+
+    [Parameter]
+    public Guid? AuthorId { get; set; }
+
+    // Use a regular property now, as we'll populate it manually from the query string
+    public string? AuthorName { get; set; }
+
+    public List<AuthorDto> AuthorData { get; set; } = new();
+
+    private async Task FetchAuthors()
+    {
+        // Create the request payload
+        var request = new GraphQLRequest
+        {
+            Query = @"
+                        query{
+                            authors{
+                                id,name
+                                }
+                            }
+            "
+        };
+
+        // 1. Send the GraphQL request to the endpoint
+        var response = await _client.SendQueryAsync<AuthorResponse>(request);
+
+        if (response.Errors != null && response.Errors.Any())
+        {
+            _errorMessage = $"GraphQL Execution Error: {string.Join("; ", response.Errors.Select(e => e.ToString()))}";
+            return;
+        }
+
+        AuthorData = response.Data.Authors;
+    }
+
+    protected async Task FetchBooksAsync()
+    {
+        try
+        {
+            _isLoading = true;
+            _errorMessage = string.Empty;
+
+            GraphQLRequest request;
+
+            if (AuthorId.HasValue)
+            {
+                request = new GraphQLRequest
+                {
+                    Query = @"
+                    query BookByAuthor($authorId: UUID!){
+                        bookByAuthor(authorId: $authorId){
+                            id
+                            title
+                            year
+                            pages
+                            author { name }
+                        }
+                    }",
+                    Variables = new { authorId = AuthorId }
+                };
+            }
+            else
+            {
+                request = new GraphQLRequest
+                {
+                    Query = @"
+                    query {
+                        books {
+                            id
+                            title
+                            year
+                            pages
+                            author { name }
+                        }
+                    }"
+                };
+            }
+
+            var response = await _client.SendQueryAsync<BookResponse>(request);
+
+            if (response.Errors != null && response.Errors.Any())
+            {
+                _errorMessage = string.Join("; ", response.Errors.Select(e => e.Message));
+                BookData = new List<BookDto>();
+            }
+            else if (response.Data == null)
+            {
+                _errorMessage = "No data returned from server.";
+                BookData = new List<BookDto>();
+            }
+            else
+            {
+                // Safely handle both query shapes
+                if (AuthorId.HasValue && response.Data.AllBooks != null)
+                    BookData = response.Data.AllBooks;
+                else if (response.Data.AllBooks != null)
+                    BookData = response.Data.AllBooks;
+                else
+                    BookData = new List<BookDto>();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"An unexpected error occurred: {ex.Message}";
+            BookData = new List<BookDto>();
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Check if the AuthorId parameter has changed. This is crucial for navigating between different authors.
+        bool parametersChanged = AuthorId != CurrentAuthorId;
+
+        // A. Manually Extract AuthorName from Query String
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+
+        if (query.TryGetValue("authorName", out var name))
+            AuthorName = name;
+
+        // B. Set Page Title Safely
+        if (AuthorId.HasValue)
+        {
+            // If the name was passed via the query string, use it. Otherwise, fall back to the ID.
+            PageTitle = $"Books by {AuthorName ?? "Author"}";
+
+            // Only fetch if the author ID has changed
+            if (parametersChanged)
+            {
+                CurrentAuthorId = AuthorId;
+                await FetchBooksAsync();
+            }
+        }
+        else
+        {
+            PageTitle = "All Books in the Library";
+
+            // Only fetch if we were previously viewing an author or this is the first load
+            if (CurrentAuthorId.HasValue || CurrentAuthorId == null && !BookData.Any())
+            {
+                CurrentAuthorId = null; // Reset current ID for global view
+                await FetchBooksAsync();
+            }
+        }
+    }
+
+    private async Task AddBook()
+    {
+        CurrentBook = new BookDto
+        {
+            Author = new AuthorDto() // prevent null reference
+        };
+        await FetchAuthors();
+        IsAddModalOpen = true;
+    }
+
+    private async Task DeleteBook(Guid id)
+    {
+        // Create the request payload
+        var request = new GraphQLRequest
+        {
+            Query = @"
+                        mutation DeleteBook($id: UUID!){
+                            deleteBook(id: $id)
+                        }
+                      ",
+            Variables = new { id } // <-- This is where the parameter is passed
+        };
+
+        // 1. Send the GraphQL request to the endpoint
+        var response = await _client.SendMutationAsync<DeleteBookResponse>(request);
+
+        if (response.Errors != null && response.Errors.Any())
+        {
+            _errorMessage = $"GraphQL Execution Error: {string.Join("; ", response.Errors.Select(e => e.ToString()))}";
+        }
+
+        await FetchBooksAsync();
+    }
+    private void UpdateBook(BookDto book)
+    {
+        // Clone to avoid changing list item before save
+        _updateBookModel = new UpdateBookDto()
+        {
+            Id = book.Id,
+            Title = book.Title,
+            Year = book.Year,
+            Pages = book.Pages
+        };
+        IsEditModalOpen = true;
+    }
+
+    private async Task SaveAddBook()
+    {
+        var request = new GraphQLRequest
+        {
+            Query = @"
+                        mutation AddBook($authorId: UUID!, $pages: Int!, $year: Int!, $title: String!){
+                          addBook(input:  {
+                             authorId: $authorId,
+                             pages: $pages,
+                             title: $title,
+                             year: $year
+                          }){
+                            id,
+                            title,year,pages,author{
+                              id,name,bioGraphy
+                            }
+                          }
+                        }",
+            Variables = new {authorId = _createBookModel.AuthorId, pages = _createBookModel.Pages, title = _createBookModel.Title, year = _createBookModel.Year}
+        };
+
+        var response = await _client.SendMutationAsync<CreateBookResponse>(request);
+        if (response.Errors != null && response.Errors.Any())
+        {
+            _errorMessage = string.Join("; ", response.Errors.Select(e => e.Message));
+            BookData = new List<BookDto>();
+        }
+
+        await FetchBooksAsync();
+        CloseAddModal();
+    }
+
+    private async Task SaveUpdateBook()
+    {
+        var request = new GraphQLRequest
+        {
+            Query = @"
+                        mutation UpdateBook($id: UUID!, $pages: Int!, $year: Int!, $title: String!){
+                          updateBook(input:  {
+                             id: $id,
+                             pages: $pages,
+                             title: $title,
+                             year: $year
+                          }){
+                            id
+                          }
+                        }",
+            Variables = new { id = _updateBookModel.Id, pages = _updateBookModel.Pages, title = _updateBookModel.Title, year = _updateBookModel.Year }
+        };
+
+        var response = await _client.SendMutationAsync<UpdateBookResponse>(request);
+        if (response.Errors != null && response.Errors.Any())
+        {
+            _errorMessage = string.Join("; ", response.Errors.Select(e => e.Message));
+            BookData = new List<BookDto>();
+        }
+
+        await FetchBooksAsync();
+        CloseEditModal();
+    }
+
+    private void CloseEditModal()
+    {
+        IsEditModalOpen = false;
+    }
+    private void CloseAddModal()
+    {
+        IsAddModalOpen = false;
+    }
+}
